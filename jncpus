@@ -1,0 +1,151 @@
+#! /bin/bash
+
+# Author: Jian Wang
+# Email: wj_hust08@hust.edu.cn
+# Date: 2016-12-16
+
+print_help() {
+cat <<!
+Introduction: Scan CPUs
+Author: Jian Wang
+Date: 2016-12-16
+Email: wj_hust08@hust.edu.cn
+Usage: scancpu
+!
+}
+
+if [[ $1 = "-h" || $1 = "--help" ]]; then
+    print_help
+    exit
+fi
+
+scontrol show node | while read line; do
+    if [[ ${line} =~ NodeName=(.*)" "Arch ]]; then
+        echo -ne ${BASH_REMATCH[1]}" "
+    elif [[ ${line} =~ CPUAlloc=(.*)" "CPUErr=.*" "CPUTot=(.*)" "CPULoad ]]; then
+        echo -ne ${BASH_REMATCH[@]:1:2}"\n"
+    fi
+done | (
+    nodes=""
+    node_allocs=""
+    node_tots=""
+    while read line; do
+        arr=(${line})
+        nodes=${nodes}" "${arr[0]}
+        node_allocs=${node_allocs}" "${arr[1]}
+        node_tots=${node_tots}" "${arr[2]}
+    done
+    nodes=(${nodes})
+    node_allocs=(${node_allocs})
+    node_tots=(${node_tots})
+
+    scontrol show job | while read line; do
+        if [[ ${line} =~ JobId=(.*)\s*JobName=(.*) ]]; then
+            echo -ne ${BASH_REMATCH[@]:1:2}" "
+        elif [[ ${line} =~ UserId=(.*)\([0-9]+\)" "GroupId ]]; then
+            echo -ne ${BASH_REMATCH[1]}" "
+        elif [[ ${line} =~ JobState=(.*)" "Reason ]]; then
+            echo -ne ${BASH_REMATCH[1]}" "
+        elif [[ ${line} =~ ^\s*NodeList=(.*)$ ]]; then
+            #echo -ne ${BASH_REMATCH[1]}" "
+            echo ${BASH_REMATCH[1]}
+        #elif [[ ${line} =~ NumTasks=(.*)" "CPUs/Tasks ]]; then
+            #echo ${BASH_REMATCH[1]}
+        fi
+    done | (
+        declare -a ids;
+        declare -a names;
+        declare -a users;
+        while read line; do
+            arr=($line)
+            id=${arr[0]}
+            name=${arr[1]}
+            user=${arr[2]}
+            state=${arr[3]}
+            node=${arr[4]}
+            num_tasks=${arr[5]}
+            if [[ $state = "RUNNING" ]]; then
+                if [[ $node =~ node\[([0-9]+)-([0-9]+)\] ]]; then
+                    for i in $(seq ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}); do
+                        nds=${nds}" "node${i}
+                    done
+                    is_mpi=1
+                else
+                    nds=$node
+                    is_mpi=0
+                fi
+                #if [[ $num_tasks -eq 1 ]]; then is_mpi=0; else is_mpi=1; fi
+                for nd in ${nds}; do
+                    n=0
+                    for i in ${nodes[@]}; do
+                        if [[ $i = $nd ]]; then
+                            break;
+                        fi
+                        n=$((n+1))
+                    done
+                    ids[$n]=${ids[${n}]}" "${id}
+                    names[$n]=${names[${n}]}" "${name}
+                    if [[ $is_mpi -eq 1 ]]; then
+                        users[$n]=${users[${n}]}" "${user}[mpi]
+                    else
+                        users[$n]=${users[${n}]}" "${user}
+                    fi
+                done
+            fi
+        done
+        n=${#nodes[@]}
+        for i in $(seq 0 $((n-1))); do
+            echo -ne ${nodes[$i]}" "
+            id_list=(${ids[$i]})
+            user_list=(${users[$i]})
+            for j in $(seq 1 ${#id_list[@]}); do
+                echo -ne ${user_list[$((j-1))]}" "
+            done
+            echo
+#            printf "%-7s " ${nodes[$i]}
+#            printf "%-7s " [${node_allocs[$i]}/${node_tots[$i]}]
+#            id_list=(${ids[$i]})
+#            user_list=(${users[$i]})
+#            for j in $(seq 1 ${#id_list[@]}); do
+#                echo -ne ${id_list[$((j-1))]}-${user_list[$((j-1))]}" "
+#            done
+#            echo
+        done
+    ) | (
+        num_nodes=${#nodes[@]}
+        num_alloc_nodes=0
+        num_tot_nodes=0
+        for i in $(seq 0 $((num_nodes-1))); do
+            num_alloc_nodes=$((num_alloc_nodes+node_allocs[$i]))
+            num_tot_nodes=$((num_tot_nodes+node_tots[$i]))
+        done
+        echo =================================================================
+        declare -A user_infos
+        printf "%-7s " Node
+        printf "%-8s " CPU
+        echo Users
+        echo -----------------------------------------------------------------
+        n=0
+        while read line; do
+            user_infos=()
+            arr=(${line})
+            printf "%-7s " ${arr[0]}
+            printf "%-8s " [${node_allocs[$n]}/${node_tots[$n]}]
+            for i in ${arr[@]:1}; do
+                user_infos[$i]=$((user_infos[$i]+1))
+            done
+            for i in ${!user_infos[@]}; do
+                if [[ ${i} =~ mpi ]]; then
+                    echo -ne ${i}" "
+                else
+                    echo -ne ${i}[${user_infos[$i]}]" "
+                fi
+            done
+            echo
+            n=$((n+1))
+        done
+        echo -----------------------------------------------------------------
+        printf "Total CPUs: %s          Available CPUs: \e[32m%s\e[0m\n" $num_tot_nodes $((num_tot_nodes-num_alloc_nodes))
+        echo =================================================================
+    )
+)

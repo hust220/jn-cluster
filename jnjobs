@@ -1,0 +1,44 @@
+#! /bin/bash
+
+# Author: Jian Wang
+# Email: wj_hust08@hust.edu.cn
+# Date: 2016-12-16
+
+if [[ $# -gt 0 ]]; then
+    username=$1
+else
+    username=$USER
+fi
+
+scontrol show job | while read line; do
+    if [[ ${line} =~ JobId=(.*)\s*JobName=(.*) ]]; then
+        echo -ne ${BASH_REMATCH[@]:1:2}" "
+    elif [[ ${line} =~ UserId=(.*)\([0-9]+\)" "GroupId ]]; then
+        echo -ne ${BASH_REMATCH[1]}" "
+    elif [[ ${line} =~ JobState=(.*)" "Reason ]]; then
+        echo -ne ${BASH_REMATCH[1]}" "
+    elif [[ ${line} =~ ^\s*NodeList=(.*)$ ]]; then
+        echo ${BASH_REMATCH[1]}
+    fi
+done | (
+    declare -a ids;
+    declare -a names;
+    declare -a users;
+    num_running=0
+    num_pending=0
+    while read line; do
+        arr=($line)
+        id=${arr[0]}
+        name=${arr[1]}
+        user=${arr[2]}
+        state=${arr[3]}
+        node=${arr[4]}
+        if [[ $state = "RUNNING" && $user = $username ]]; then
+            num_running=$((num_running+1))
+        elif [[ $state = "PENDING" && $user = $username ]]; then
+            num_pending=$((num_pending+1))
+        fi
+    done
+    echo USER: $username, RUNNING: $num_running, PENDING: $num_pending
+)
+

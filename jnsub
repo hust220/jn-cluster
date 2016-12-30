@@ -1,0 +1,73 @@
+#! /bin/bash
+
+print_help() {
+cat <<!
+Introduction: Simple submision of PBS task
+Author: wangjian
+Date: 2016-11-18
+Email: wj_hust08@163.com
+Usage: jnsub '<COMMAND>' [-name <NAME>] [-nodes '<NODES>'] [-out <OUTFILE>] [-err <ERRFILE>] [-time <TIME>]
+Example:
+  1. jnsub 'ls' -out aa.txt
+  2. jnsub 'for i in \$(seq 1 10); do echo \${i}; done' -out aa.txt
+  3. jnsub 'mpiexec -n 16 pmemd.MPI -O -i md2.in -o md2_1.out -p bound.prmtop -c heat.rst -r md2_1.rst -x md2_1.ncdf' -nodes '2:ppn=8'
+  4. for i in \$(seq 1 10); do jnsub "echo This is task \${i}!" -out \${i}.txt; done
+!
+}
+
+init_pars() {
+    if [ ! ${j} ]; then j=$USER; fi
+    if [ ! ${n} ]; then n=1; fi
+    if [ ! ${o} ]; then o="/dev/null"; fi
+    if [ ! ${e} ]; then e="/dev/null"; fi
+    if [ ! ${t} ]; then t="24:00:00"; fi
+}
+
+init_job() {
+    id=$RANDOM
+    cat <<! >${id}.sh
+#!/bin/bash
+
+#SBATCH -n ${n}
+#SBATCH -J ${j}
+#SBATCH -t ${t}
+#SBATCH -o ${o}
+#SBATCH -e ${e}
+#SBATCH --qos qos_unlimit
+
+!
+    echo ${global[0]} >>${id}.sh
+}
+
+submit() {
+    sbatch ${id}.sh
+}
+
+clean() {
+    rm ${id}.sh
+}
+
+# get pars
+num=0
+while [ $# != 0 ]; do
+    if [ ${1:0:1} == '-' ]; then break;
+    else global[$num]=${1}; num=$((num+1)); fi
+    shift
+done
+
+while [ $# != 0 ]; do
+    if [ ${1:0:1} == '-' ]; then par_name=${1:1}; eval ${par_name}=1; num=0;
+    else eval ${par_name}[${num}]=\"${1}\"; num=$((num+1)); fi
+    shift
+done
+
+if [ $num -eq 0 -o "${help}" -o "${h}" ]; then
+    print_help
+else
+    init_pars
+    init_job
+    submit
+    clean
+fi
+
+
